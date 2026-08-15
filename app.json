@@ -4,12 +4,13 @@
     "slug": "triple-downloader",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#0f0f0f"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
       "package": "com.yourname.tripledownloader",
       "adaptiveIcon": {
@@ -17,7 +18,10 @@
       },
       "permissions": [
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_MEDIA_LOCATION"
       ]
     },
     "plugins": [
@@ -29,6 +33,11 @@
           "isAccessMediaLocationEnabled": true
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ed81174a-46b4-4525-9102-1855389bc574"
+      }
+    }
   }
 }
