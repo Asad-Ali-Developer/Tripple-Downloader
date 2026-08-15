@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Triple Downloader",
+    "slug": "triple-downloader",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f0f0f"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.yourname.tripledownloader",
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0f0f"
+      },
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Triple Downloader to save videos to your gallery.",
+          "savePhotosPermission": "Allow Triple Downloader to save videos to your gallery.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ]
+  }
+}
