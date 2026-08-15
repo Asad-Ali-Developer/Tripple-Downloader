@@ -1,96 +1,139 @@
-import { MediaPreview, Platform } from '../types';
+import { MediaPreview, Platform } from "../types";
 
 /**
  * NOTE ON RELIABILITY
  * -------------------
- * TikTok, Instagram, and YouTube do not offer official "download this video"
- * endpoints. This app relies on two free, key-free, community-run services:
+ * TikTok, Instagram, and YouTube do not offer official "download" APIs, so
+ * this app relies on two free, community-run services:
  *
- *  1. tikwm.com  -> TikTok only, returns a clean no-watermark link. Generally
- *     stable and the primary path for TikTok.
+ *  1. tikwm.com  -> TikTok only, returns a clean no-watermark link. Stable
+ *     and used as the primary path for TikTok.
  *
- *  2. Cobalt (public instance, https://github.com/imputnet/cobalt) -> an
- *     open-source, actively maintained downloader that supports TikTok,
- *     Instagram, and YouTube through one API. Used as the primary path for
- *     Instagram/YouTube and as a fallback for TikTok.
+ *  2. Cobalt (open-source, https://github.com/imputnet/cobalt) -> supports
+ *     TikTok, Instagram, and YouTube through one API. Used for Instagram/
+ *     YouTube and as a fallback for TikTok.
  *
- * Because these are unofficial/community services (not run by Anthropic or
- * by TikTok/Instagram/YouTube), they can change their API shape, add rate
- * limits, or go down without notice. If that happens, update COBALT_API
- * below to whatever the current public instance URL is (check
- * https://github.com/imputnet/cobalt for the latest), or self-host your own
- * Cobalt instance for full reliability (see README.md).
+ * IMPORTANT — YouTube specifically:
+ * As of mid-2026, YouTube actively blocks the public cobalt.tools instance
+ * at the network level, so YouTube links will frequently fail no matter how
+ * this code is written — that's a platform-side block, not a bug here.
+ * TikTok and Instagram are not affected the same way.
+ *
+ * The real fix for reliable YouTube support is running your OWN free Cobalt
+ * instance (e.g. Railway's one-click deploy: https://railway.com/deploy/cobalt-youtube-downloader).
+ * Once you have your own instance URL, just change COBALT_API below to it
+ * (e.g. "https://your-app.up.railway.app") and everything else keeps working
+ * unchanged.
  */
 
-const COBALT_API = 'https://api.cobalt.tools/api/json';
-const TIKWM_API = 'https://www.tikwm.com/api/';
+const COBALT_API = "https://api.cobalt.tools/"; // swap for your own self-hosted URL for reliable YouTube
+const TIKWM_API = "https://www.tikwm.com/api/";
 
 async function fetchTikTokViaTikwm(url: string): Promise<MediaPreview> {
   const res = await fetch(`${TIKWM_API}?url=${encodeURIComponent(url)}`);
-  if (!res.ok) throw new Error('TikTok service unavailable right now');
+  if (!res.ok) throw new Error("TikTok service unavailable right now");
   const json = await res.json();
   if (json.code !== 0 || !json.data) {
-    throw new Error('Could not read that TikTok link. Make sure it is public.');
+    throw new Error("Could not read that TikTok link. Make sure it is public.");
   }
   const d = json.data;
   return {
-    title: d.title || 'TikTok video',
+    title: d.title || "TikTok video",
     thumbnail: d.cover,
     author: d.author?.nickname,
     downloadUrl: d.play, // no-watermark direct mp4 link
-    type: 'video',
+    type: "video",
   };
 }
 
-async function fetchViaCobalt(url: string, platform: Platform): Promise<MediaPreview> {
-  const res = await fetch(COBALT_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      url,
-      vQuality: '720',
-      isAudioOnly: false,
-      filenamePattern: 'basic',
-    }),
-  });
-
-  if (!res.ok) {
+async function fetchViaCobalt(
+  url: string,
+  platform: Platform,
+): Promise<MediaPreview> {
+  let res: Response;
+  try {
+    res = await fetch(COBALT_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        url,
+        videoQuality: "720",
+        downloadMode: "auto",
+        filenameStyle: "basic",
+      }),
+    });
+  } catch {
     throw new Error(
-      platform === 'youtube'
-        ? 'YouTube link could not be processed. Very long videos or age-restricted/private videos are not supported.'
-        : 'Instagram link could not be processed. Make sure the post is public.'
+      "Could not reach the download service. Check your connection and try again.",
     );
   }
 
-  const data = await res.json();
+  const data = await res.json().catch(() => null);
 
-  if (data.status === 'error' || !data.url) {
-    throw new Error(data.text || 'This link could not be resolved.');
+  if (!data) {
+    throw new Error("The download service returned an unexpected response.");
   }
 
-  return {
-    title: data.title || (platform === 'youtube' ? 'YouTube video' : 'Instagram video'),
-    thumbnail: data.thumb || '',
-    downloadUrl: data.url,
-    type: data.audio ? 'video' : 'video',
-  };
+  if (data.status === "error") {
+    const code: string = data.error?.code || "";
+    if (platform === "youtube" && /youtube|bot|forbidden/i.test(code)) {
+      throw new Error(
+        "YouTube is blocking the free public download service right now. This is a known platform-side block, not an app bug — see README.md for how to fix it with a free self-hosted instance.",
+      );
+    }
+    throw new Error(
+      "This link could not be resolved. It may be private, region-locked, or unsupported.",
+    );
+  }
+
+  // tunnel / redirect -> single direct file
+  if (data.status === "tunnel" || data.status === "redirect") {
+    return {
+      title:
+        data.filename ||
+        (platform === "youtube" ? "YouTube video" : "Instagram video"),
+      thumbnail: "",
+      downloadUrl: data.url,
+      type: "video",
+    };
+  }
+
+  // picker -> multiple items (e.g. Instagram carousel), take the first video/photo
+  if (
+    data.status === "picker" &&
+    Array.isArray(data.picker) &&
+    data.picker.length > 0
+  ) {
+    const first =
+      data.picker.find((p: any) => p.type === "video") || data.picker[0];
+    return {
+      title: platform === "youtube" ? "YouTube video" : "Instagram post",
+      thumbnail: first.thumb || "",
+      downloadUrl: first.url,
+      type: first.type === "photo" ? "image" : "video",
+    };
+  }
+
+  throw new Error("This link could not be resolved.");
 }
 
-export async function fetchPreview(platform: Platform, rawUrl: string): Promise<MediaPreview> {
+export async function fetchPreview(
+  platform: Platform,
+  rawUrl: string,
+): Promise<MediaPreview> {
   const url = rawUrl.trim();
-  if (!url) throw new Error('Please paste a link first.');
+  if (!url) throw new Error("Please paste a link first.");
   if (!/^https?:\/\//i.test(url)) {
-    throw new Error('That does not look like a valid URL.');
+    throw new Error("That does not look like a valid URL.");
   }
 
-  if (platform === 'tiktok') {
+  if (platform === "tiktok") {
     try {
       return await fetchTikTokViaTikwm(url);
-    } catch (primaryError) {
-      // Fall back to Cobalt if tikwm fails or is down
+    } catch {
       return await fetchViaCobalt(url, platform);
     }
   }
